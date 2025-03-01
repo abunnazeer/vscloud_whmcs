@@ -1,0 +1,102 @@
+// src/routes/hosting.routes.ts
+import { Router } from "express";
+import { authenticate } from "../middleware/auth.middleware";
+import { validateRequest } from "../middleware/validate.middleware";
+import { HostingController } from "../controllers/hosting.controller";
+// import { ServerController } from "../controllers/server.controller";
+import { HostingPackageController } from "../controllers/hosting-package.controller";
+
+const router = Router();
+const hostingController = new HostingController();
+const serverController = new ServerController();
+const packageController = new HostingPackageController();
+
+// Hosting Account Routes
+router.post("/accounts", authenticate, hostingController.createHostingAccount);
+
+router.get("/accounts", authenticate, hostingController.listHostingAccounts);
+
+router.get("/accounts/:id", authenticate, hostingController.getHostingAccount);
+
+router.post(
+  "/accounts/:id/suspend",
+  authenticate,
+  hostingController.suspendAccount
+);
+
+router.post(
+  "/accounts/:id/unsuspend",
+  authenticate,
+  hostingController.unsuspendAccount
+);
+
+router.delete("/accounts/:id", authenticate, hostingController.deleteAccount);
+
+// Database Routes
+router.post(
+  "/accounts/:hostingAccountId/databases",
+  authenticate,
+  hostingController.createDatabase
+);
+
+// Email Account Routes
+router.post(
+  "/accounts/:hostingAccountId/emails",
+  authenticate,
+  hostingController.createEmailAccount
+);
+
+// FTP Account Routes
+router.post(
+  "/accounts/:hostingAccountId/ftp",
+  authenticate,
+  hostingController.createFTPAccount
+);
+
+// Server Routes
+router.post("/servers", authenticate, serverController.createServer);
+
+router.get("/servers", authenticate, serverController.listServers);
+
+router.get("/servers/:id", authenticate, serverController.getServer);
+
+router.patch(
+  "/servers/:id/status",
+  authenticate,
+  serverController.updateServerStatus
+);
+
+router.post(
+  "/servers/:serverId/maintenance",
+  authenticate,
+  serverController.scheduleMaintenance
+);
+
+router.get(
+  "/servers/:id/metrics",
+  authenticate,
+  serverController.getServerMetrics
+);
+
+router.delete("/servers/:id", authenticate, serverController.deleteServer);
+
+// Hosting Package Routes
+router.post("/packages", authenticate, packageController.createPackage);
+
+router.get("/packages", packageController.listPackages);
+
+router.get("/packages/:id", packageController.getPackage);
+
+router.patch("/packages/:id", authenticate, packageController.updatePackage);
+
+router.delete("/packages/:id", authenticate, packageController.deletePackage);
+
+router.post("/packages/compare", packageController.comparePackages);
+
+router.get(
+  "/packages/:id/stats",
+  authenticate,
+  packageController.getPackageUsageStats
+);
+
+export default router;

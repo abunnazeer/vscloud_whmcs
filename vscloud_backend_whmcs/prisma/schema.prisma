@@ -1,0 +1,290 @@
+// prisma/schema.prisma
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id            String    @id @default(cuid())
+  name          String
+  email         String    @unique
+  password      String?
+  emailVerified Boolean   @default(false)
+  role          Role      @default(USER)
+  provider      Provider? @default(EMAIL)
+  providerId    String?
+  loginAttempts Int       @default(0)
+  lockoutUntil  DateTime?
+  lastLoginAt   DateTime?
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  // Relations
+  emailVerifications EmailVerification[]
+  passwordResets     PasswordReset[]
+  domains            Domain[] // Added this relation
+  HostingAccount     HostingAccount[]
+}
+
+model EmailVerification {
+  id        String   @id @default(cuid())
+  token     String   @unique
+  userId    String
+  user      User     @relation(fields: [userId], references: [id])
+  expires   DateTime
+  createdAt DateTime @default(now())
+
+  @@index([token])
+}
+
+model PasswordReset {
+  id        String   @id @default(cuid())
+  token     String   @unique
+  userId    String
+  user      User     @relation(fields: [userId], references: [id])
+  expires   DateTime
+  createdAt DateTime @default(now())
+
+  @@index([token])
+}
+
+model Domain {
+  id                String           @id @default(cuid())
+  name              String           @unique
+  userId            String
+  user              User             @relation(fields: [userId], references: [id])
+  registrar         String? // e.g., "namecheap", "godaddy"
+  registrationDate  DateTime
+  expiryDate        DateTime
+  autoRenew         Boolean          @default(true)
+  status            DomainStatus     @default(ACTIVE)
+  privacyProtection Boolean          @default(true)
+  nameservers       Nameserver[]
+  dnsRecords        DnsRecord[]
+  createdAt         DateTime         @default(now())
+  updatedAt         DateTime         @updatedAt
+  HostingAccount    HostingAccount[]
+
+  @@index([userId])
+  @@index([name])
+}
+
+model Nameserver {
+  id        String   @id @default(cuid())
+  hostname  String
+  domainId  String
+  domain    Domain   @relation(fields: [domainId], references: [id])
+  order     Int // To maintain nameserver order (ns1, ns2, etc.)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([domainId])
+}
+
+model DnsRecord {
+  id        String   @id @default(cuid())
+  domainId  String
+  domain    Domain   @relation(fields: [domainId], references: [id])
+  type      String // A, AAAA, CNAME, MX, TXT, etc.
+  name      String // hostname or @
+  content   String // IP address, hostname, or text content
+  ttl       Int      @default(3600)
+  priority  Int? // For MX records
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([domainId])
+  @@index([type])
+}
+
+enum Role {
+  USER
+  ADMIN
+}
+
+enum Provider {
+  EMAIL
+  GOOGLE
+}
+
+enum DomainStatus {
+  ACTIVE
+  PENDING
+  EXPIRED
+  TRANSFERRED
+  SUSPENDED
+}
+
+// Add these models to your schema.prisma
+
+model HostingPackage {
+  id              String           @id @default(cuid())
+  name            String
+  description     String?
+  diskSpace       Int // in MB
+  bandwidth       Int // in MB
+  emailAccounts   Int
+  databases       Int
+  subdomains      Int
+  price           Decimal          @db.Decimal(10, 2)
+  billingCycle    String // monthly, annually, etc.
+  isActive        Boolean          @default(true)
+  createdAt       DateTime         @default(now())
+  updatedAt       DateTime         @updatedAt
+  hostingAccounts HostingAccount[]
+}
+
+model HostingAccount {
+  id               String         @id @default(cuid())
+  userId           String
+  user             User           @relation(fields: [userId], references: [id])
+  packageId        String
+  package          HostingPackage @relation(fields: [packageId], references: [id])
+  domain           Domain?        @relation(fields: [domainId], references: [id])
+  domainId         String?
+  username         String         @unique
+  password         String
+  serverIp         String
+  status           HostingStatus  @default(PENDING)
+  suspensionReason String?
+  diskUsage        Int            @default(0) // in MB
+  bandwidthUsage   Int            @default(0) // in MB
+  createdAt        DateTime       @default(now())
+  updatedAt        DateTime       @updatedAt
+  server           Server         @relation(fields: [serverId], references: [id])
+  serverId         String
+  ftpAccounts      FTPAccount[]
+  databases        Database[]
+  emailAccounts    EmailAccount[]
+
+  @@index([userId])
+  @@index([packageId])
+  @@index([serverId])
+}
+
+model Server {
+  id              String           @id @default(cuid())
+  name            String
+  ipAddress       String
+  type            ServerType
+  location        String
+  status          ServerStatus     @default(ACTIVE)
+  operatingSystem String
+  totalDiskSpace  Int // in MB
+  usedDiskSpace   Int              @default(0)
+  totalBandwidth  Int // in MB
+  usedBandwidth   Int              @default(0)
+  cpuCores        Int
+  ram             Int // in MB
+  createdAt       DateTime         @default(now())
+  updatedAt       DateTime         @updatedAt
+  hostingAccounts HostingAccount[]
+  maintenanceLogs MaintenanceLog[]
+}
+
+model FTPAccount {
+  id               String         @id @default(cuid())
+  hostingAccountId String
+  hostingAccount   HostingAccount @relation(fields: [hostingAccountId], references: [id])
+  username         String         @unique
+  password         String
+  directory        String         @default("/")
+  permissions      String         @default("read_write")
+  createdAt        DateTime       @default(now())
+  updatedAt        DateTime       @updatedAt
+
+  @@index([hostingAccountId])
+}
+
+model Database {
+  id               String         @id @default(cuid())
+  hostingAccountId String
+  hostingAccount   HostingAccount @relation(fields: [hostingAccountId], references: [id])
+  name             String
+  username         String
+  password         String
+  type             DatabaseType   @default(MYSQL)
+  size             Int            @default(0) // in MB
+  createdAt        DateTime       @default(now())
+  updatedAt        DateTime       @updatedAt
+
+  @@index([hostingAccountId])
+}
+
+model EmailAccount {
+  id               String         @id @default(cuid())
+  hostingAccountId String
+  hostingAccount   HostingAccount @relation(fields: [hostingAccountId], references: [id])
+  email            String         @unique
+  password         String
+  forwardTo        String?
+  quotaSize        Int            @default(1024) // in MB
+  usedQuota        Int            @default(0) // in MB
+  createdAt        DateTime       @default(now())
+  updatedAt        DateTime       @updatedAt
+
+  @@index([hostingAccountId])
+}
+
+model MaintenanceLog {
+  id          String            @id @default(cuid())
+  serverId    String
+  server      Server            @relation(fields: [serverId], references: [id])
+  type        MaintenanceType
+  description String
+  startTime   DateTime
+  endTime     DateTime?
+  status      MaintenanceStatus @default(SCHEDULED)
+  createdAt   DateTime          @default(now())
+  updatedAt   DateTime          @updatedAt
+
+  @@index([serverId])
+}
+
+enum HostingStatus {
+  PENDING
+  ACTIVE
+  SUSPENDED
+  TERMINATED
+  FAILED
+}
+
+enum ServerType {
+  SHARED
+  VPS
+  DEDICATED
+  CLOUD
+}
+
+enum ServerStatus {
+  ACTIVE
+  MAINTENANCE
+  OFFLINE
+  DEPRECATED
+}
+
+enum DatabaseType {
+  MYSQL
+  POSTGRESQL
+  MONGODB
+}
+
+enum MaintenanceType {
+  SCHEDULED
+  EMERGENCY
+  UPGRADE
+  BACKUP
+  SECURITY_PATCH
+}
+
+enum MaintenanceStatus {
+  SCHEDULED
+  IN_PROGRESS
+  COMPLETED
+  FAILED
+  CANCELLED
+}
