@@ -5,11 +5,13 @@ import helmet from "helmet";
 import morgan from "morgan";
 import authRoutes from "./routes/auth.routes";
 import domainRoutes from "./routes/domain.routes";
+import directAdminRoutes from "./routes/directadmin.routes";
 
 // import hostingRoutes from "./routes/hosting.routes";
 import domainRegistrarRoutes from "./routes/domain-registrar.routes";
 
 import dotenv from "dotenv";
+import hostingRoutes from "./routes/hosting.routes";
 dotenv.config();
 const app = express();
 
@@ -29,7 +31,8 @@ app.use(express.urlencoded({ extended: true }));
 app.use("/api/auth", authRoutes);
 app.use("/api/domains", domainRoutes);
 app.use("/api/domains", domainRegistrarRoutes);
-// app.use("/api/hosting", hostingRoutes);
+// app.use("/api/directadmin", directAdminRoutes);
+app.use("/api/hosting", hostingRoutes);
 // Error handling
 app.use(
   (

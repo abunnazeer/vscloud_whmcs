@@ -213,7 +213,7 @@ export class HostingService {
   ) {
     await this.getHostingAccount(hostingAccountId, userId);
 
-    return await prisma.ftpAccount.create({
+    return await prisma.fTPAccount.create({
       data: {
         hostingAccountId,
         username: data.username,
@@ -269,7 +269,7 @@ export class HostingService {
 
     // First delete related records
     await prisma.$transaction([
-      prisma.ftpAccount.deleteMany({
+      prisma.fTPAccount.deleteMany({
         where: { hostingAccountId: id },
       }),
       prisma.database.deleteMany({

@@ -26,7 +26,7 @@ model User {
   // Relations
   emailVerifications EmailVerification[]
   passwordResets     PasswordReset[]
-  domains            Domain[] // Added this relation
+  domains            Domain[]
   HostingAccount     HostingAccount[]
 }
 
@@ -119,8 +119,6 @@ enum DomainStatus {
   SUSPENDED
 }
 
-// Add these models to your schema.prisma
-
 model HostingPackage {
   id              String           @id @default(cuid())
   name            String
@@ -170,8 +168,13 @@ model Server {
   id              String           @id @default(cuid())
   name            String
   ipAddress       String
+  hostname        String           // Added hostname field
+  port            Int              @default(22) // Added port field with default
+  username        String           // Added username field
+  password        String           // Added password field
   type            ServerType
   location        String
+  useSSL          Boolean          @default(true) // Added useSSL field with default true
   status          ServerStatus     @default(ACTIVE)
   operatingSystem String
   totalDiskSpace  Int // in MB
@@ -231,16 +234,17 @@ model EmailAccount {
 }
 
 model MaintenanceLog {
-  id          String            @id @default(cuid())
-  serverId    String
-  server      Server            @relation(fields: [serverId], references: [id])
-  type        MaintenanceType
-  description String
-  startTime   DateTime
-  endTime     DateTime?
-  status      MaintenanceStatus @default(SCHEDULED)
-  createdAt   DateTime          @default(now())
-  updatedAt   DateTime          @updatedAt
+  id              String            @id @default(cuid())
+  serverId        String
+  server          Server            @relation(fields: [serverId], references: [id])
+  type            MaintenanceType
+  description     String
+  startTime       DateTime
+  endTime         DateTime?
+  status          MaintenanceStatus @default(SCHEDULED)
+  notificationSent Boolean           @default(false) // Added notificationSent field
+  createdAt       DateTime          @default(now())
+  updatedAt       DateTime          @updatedAt
 
   @@index([serverId])
 }
@@ -254,10 +258,15 @@ enum HostingStatus {
 }
 
 enum ServerType {
+  DIRECTADMIN
+  CPANEL
+  PLESK
+  AWS
   SHARED
   VPS
   DEDICATED
   CLOUD
+  OTHER
 }
 
 enum ServerStatus {

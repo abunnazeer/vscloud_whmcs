@@ -50,6 +50,6 @@
     /* Completeness */
     "skipLibCheck": true
   },
-  "include": ["src/**/*"],
+  "include": ["src/**/*", "tests/integrations/directadmin.service.test.ts"],
   "exclude": ["node_modules", "dist", "**/*.spec.ts"]
 }
