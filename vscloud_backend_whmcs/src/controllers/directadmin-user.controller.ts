@@ -42,43 +42,11 @@ export class DirectAdminUserController {
     }
   };
 
-  // public getUser = async (req: Request, res: Response): Promise<void> => {
-  //   try {
-  //     const { username } = req.params;
-  //     const { serverId } = req.query;
-
-  //     if (!serverId) {
-  //       res.status(400).json({
-  //         status: "error",
-  //         message: "Server ID is required",
-  //       });
-  //       return;
-  //     }
-
-  //     const server = await this.serverService.getServer(serverId as string);
-  //     const daService = new DirectAdminService(server);
-
-  //     const userDetails = await daService.getUserDetails(username);
-
-  //     res.json({
-  //       status: "success",
-  //       data: { user: userDetails },
-  //     });
-  //   } catch (error) {
-  //     res.status(404).json({
-  //       status: "error",
-  //       message:
-  //         error instanceof Error ? error.message : "DirectAdmin user not found",
-  //     });
-  //   }
-  // };
-
   public getUser = async (req: Request, res: Response): Promise<void> => {
     try {
-      const { username } = req.params;
+      const { username } = req.params as { username: string };
       const { serverId } = req.query;
 
-  
       if (!serverId) {
         res.status(400).json({
           status: "error",
@@ -98,7 +66,6 @@ export class DirectAdminUserController {
           data: { user: userDetails },
         });
       } catch (daError) {
-        // Specifically handle DirectAdmin API errors
         res.status(400).json({
           status: "error",
           message:
@@ -108,7 +75,6 @@ export class DirectAdminUserController {
         });
       }
     } catch (error) {
-      // This catch block handles errors from server retrieval
       res.status(404).json({
         status: "error",
         message:
@@ -127,14 +93,14 @@ export class DirectAdminUserController {
         });
         return;
       }
-      
+
       console.log(userData);
       const server = await this.serverService.getServer(serverId);
-      console.log(server)
+      console.log(server);
       const daService = new DirectAdminService(server);
- console.log(daService)
- await daService.createUser(userData);
- console.log(daService)
+      console.log(daService);
+      await daService.createUser(userData);
+      console.log(daService);
 
       res.status(201).json({
         status: "success",
@@ -153,7 +119,7 @@ export class DirectAdminUserController {
 
   public updateUser = async (req: Request, res: Response): Promise<void> => {
     try {
-      const { username } = req.params;
+      const { username } = req.params as { username: string };
       const { serverId, ...userData } = req.body;
 
       if (!serverId) {
@@ -167,12 +133,23 @@ export class DirectAdminUserController {
       const server = await this.serverService.getServer(serverId);
       const daService = new DirectAdminService(server);
 
-      await daService.updateUser(username, userData);
+      try {
+        await daService.updateUser(username, userData);
 
-      res.json({
-        status: "success",
-        message: "DirectAdmin user updated successfully",
-      });
+        res.json({
+          status: "success",
+          message: "DirectAdmin user updated successfully",
+        });
+      } catch (daError) {
+        console.error("DirectAdmin update operation failed:", daError);
+        res.status(400).json({
+          status: "error",
+          message:
+            daError instanceof Error
+              ? daError.message
+              : "Unknown DirectAdmin error",
+        });
+      }
     } catch (error) {
       res.status(400).json({
         status: "error",
@@ -186,7 +163,7 @@ export class DirectAdminUserController {
 
   public deleteUser = async (req: Request, res: Response): Promise<void> => {
     try {
-      const { username } = req.params;
+      const { username } = req.params as { username: string };
       const { serverId } = req.query;
 
       if (!serverId) {
@@ -219,7 +196,7 @@ export class DirectAdminUserController {
 
   public suspendUser = async (req: Request, res: Response): Promise<void> => {
     try {
-      const { username } = req.params;
+      const { username } = req.params as { username: string };
       const { serverId } = req.body;
 
       if (!serverId) {
@@ -252,7 +229,7 @@ export class DirectAdminUserController {
 
   public unsuspendUser = async (req: Request, res: Response): Promise<void> => {
     try {
-      const { username } = req.params;
+      const { username } = req.params as { username: string };
       const { serverId } = req.body;
 
       if (!serverId) {

@@ -68,7 +68,7 @@ export class ServerController {
 
   public getServer = async (req: Request, res: Response): Promise<void> => {
     try {
-      const { id } = req.params;
+      const { id } = req.params as { id: string };
       const server = await this.serverService.getServer(id);
 
       // Remove sensitive data
@@ -124,7 +124,7 @@ export class ServerController {
 
   public updateServer = async (req: Request, res: Response): Promise<void> => {
     try {
-      const { id } = req.params;
+      const { id } = req.params as { id: string };
       const serverData = req.body;
 
       // Test connection if credentials are being updated
@@ -182,7 +182,7 @@ export class ServerController {
     res: Response
   ): Promise<void> => {
     try {
-      const { id } = req.params;
+      const { id } = req.params as { id: string };
       const { status } = req.body;
 
       if (!status || !["active", "maintenance", "offline"].includes(status)) {
@@ -218,7 +218,7 @@ export class ServerController {
 
   public deleteServer = async (req: Request, res: Response): Promise<void> => {
     try {
-      const { id } = req.params;
+      const { id } = req.params as { id: string };
 
       // Check if server has any active hosting accounts before deletion
       const hasActiveAccounts = await this.serverService.hasActiveAccounts(id);
@@ -251,7 +251,7 @@ export class ServerController {
     res: Response
   ): Promise<void> => {
     try {
-      const { id } = req.params;
+      const { id } = req.params as { id: string };
       const { timeRange } = req.query;
 
       const server = await this.serverService.getServer(id);
@@ -313,7 +313,7 @@ export class ServerController {
       }
 
       const maintenance: Partial<MaintenanceSchedule> = {
-        serverId,
+        serverId: serverId as string,
         startTime: new Date(startTime),
         endTime: new Date(endTime),
         description: reason, // Changed from 'reason' to 'description' to match the interface

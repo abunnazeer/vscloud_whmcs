@@ -13,6 +13,8 @@ export class EmailService {
         user: process.env.SMTP_USER,
         pass: process.env.SMTP_PASS,
       },
+      // connectionTimeout: 10000, // Increase timeout to 10 seconds
+      // greetingTimeout: 10000,
       debug: process.env.NODE_ENV === "development", // Enable debug logs in development
       logger: process.env.NODE_ENV === "development", // Enable logger in development
     });

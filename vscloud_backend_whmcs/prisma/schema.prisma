@@ -119,21 +119,55 @@ enum DomainStatus {
   SUSPENDED
 }
 
+
 model HostingPackage {
-  id              String           @id @default(cuid())
-  name            String
-  description     String?
-  diskSpace       Int // in MB
-  bandwidth       Int // in MB
-  emailAccounts   Int
-  databases       Int
-  subdomains      Int
-  price           Decimal          @db.Decimal(10, 2)
-  billingCycle    String // monthly, annually, etc.
-  isActive        Boolean          @default(true)
-  createdAt       DateTime         @default(now())
-  updatedAt       DateTime         @updatedAt
-  hostingAccounts HostingAccount[]
+  id                    String   @id @default(cuid())
+  name                  String   @unique
+  type                  String   // shared, reseller, vps, dedicated
+  description           String
+  status                String   // active, draft, archived
+  createdAt             DateTime @default(now())
+  updatedAt             DateTime @updatedAt
+  
+  // Pricing
+  monthlyPrice          Decimal
+  quarterlyPrice        Decimal
+  annualPrice           Decimal
+  
+  // Features
+  diskSpace             String   // Note this is a string
+  bandwidth             String   // Note this is a string
+  domains               Int
+  databases             Int
+  emailAccounts         Int
+  sslCertificate        Boolean @default(false)
+  backups               Boolean @default(false)
+  dedicatedIp           Boolean @default(false)
+  
+  // DirectAdmin package mapping
+  directAdminPackageName String?  // Name of the corresponding DirectAdmin package
+  
+  
+  // Relations
+  hostingAccounts       HostingAccount[]
+  serverMappings        PackageServerMapping[]
+  
+}
+
+
+model PackageServerMapping {
+  id                    String         @id @default(cuid())
+  hostingPackageId      String
+  hostingPackage        HostingPackage @relation(fields: [hostingPackageId], references: [id])
+  serverId              String
+  server                Server         @relation(fields: [serverId], references: [id])
+  directAdminPackageName String
+  createdAt             DateTime       @default(now())
+  updatedAt             DateTime       @updatedAt
+  
+  @@unique([hostingPackageId, serverId])
+  @@index([hostingPackageId])
+  @@index([serverId])
 }
 
 model HostingAccount {
@@ -165,28 +199,30 @@ model HostingAccount {
 }
 
 model Server {
-  id              String           @id @default(cuid())
-  name            String
-  ipAddress       String
-  hostname        String           // Added hostname field
-  port            Int              @default(22) // Added port field with default
-  username        String           // Added username field
-  password        String           // Added password field
-  type            ServerType
-  location        String
-  useSSL          Boolean          @default(true) // Added useSSL field with default true
-  status          ServerStatus     @default(ACTIVE)
-  operatingSystem String
-  totalDiskSpace  Int // in MB
-  usedDiskSpace   Int              @default(0)
-  totalBandwidth  Int // in MB
-  usedBandwidth   Int              @default(0)
-  cpuCores        Int
-  ram             Int // in MB
-  createdAt       DateTime         @default(now())
-  updatedAt       DateTime         @updatedAt
-  hostingAccounts HostingAccount[]
-  maintenanceLogs MaintenanceLog[]
+  id                    String           @id @default(cuid())
+  name                  String
+  ipAddress             String
+  hostname              String           
+  port                  Int              @default(22)
+  username              String           
+  password              String           
+  type                  ServerType
+  location              String
+  useSSL                Boolean          @default(true)
+  status                ServerStatus     @default(ACTIVE)
+  operatingSystem       String
+  totalDiskSpace        Int // in MB
+  usedDiskSpace         Int              @default(0)
+  totalBandwidth        Int // in MB
+  usedBandwidth         Int              @default(0)
+  cpuCores              Int
+  ram                   Int // in MB
+  createdAt             DateTime         @default(now())
+  updatedAt             DateTime         @updatedAt
+  hostingAccounts       HostingAccount[]
+  maintenanceLogs       MaintenanceLog[]
+  packageMappings       PackageServerMapping[]
+  
 }
 
 model FTPAccount {
@@ -217,6 +253,7 @@ model Database {
 
   @@index([hostingAccountId])
 }
+
 
 model EmailAccount {
   id               String         @id @default(cuid())

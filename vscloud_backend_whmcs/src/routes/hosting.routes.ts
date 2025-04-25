@@ -1,11 +1,15 @@
 // src/routes/hosting.routes.ts
 import { Router } from "express";
 import { authenticate } from "../middleware/auth.middleware";
-// import { validateRequest } from "../middleware/validate.middleware";
+import { validateRequest } from "../middleware/validate.middleware";
 import { HostingController } from "../controllers/hosting.controller";
 import { ServerController } from "../controllers/server.controller";
 import { HostingPackageController } from "../controllers/hosting-package.controller";
 import { DirectAdminUserController } from "../controllers/directadmin-user.controller";
+import {
+  HostingPackageInputSchema,
+  UpdateHostingPackageInputSchema,
+} from "../models/schemas/hosting-package.schema";
 
 const router = Router();
 const hostingController = new HostingController();
@@ -34,6 +38,11 @@ router.patch(
   authenticate,
   packageController.updateDirectAdminPackage
 );
+router.patch(
+  "/packages/da/rename/:oldName",
+  authenticate,
+  packageController.renameDirectAdminPackage
+);
 router.delete(
   "/packages/da/:name",
   authenticate,
@@ -45,6 +54,7 @@ router.get("/users/da", authenticate, daUserController.listUsers);
 router.get("/users/da/:username", authenticate, daUserController.getUser);
 router.post("/users/da", authenticate, daUserController.createUser);
 router.patch("/users/da/:username", authenticate, daUserController.updateUser);
+router.put("/users/da/:username", authenticate, daUserController.updateUser);
 router.delete("/users/da/:username", authenticate, daUserController.deleteUser);
 router.post(
   "/users/da/:username/suspend",
@@ -121,17 +131,32 @@ router.post(
   serverController.testConnection
 );
 
+
 // Hosting Package Routes
-router.post("/packages", authenticate, packageController.createPackage);
-router.get("/packages", packageController.listPackages);
-router.get("/packages/:id", packageController.getPackage);
-router.patch("/packages/:id", authenticate, packageController.updatePackage);
-router.delete("/packages/:id", authenticate, packageController.deletePackage);
-router.post("/packages/compare", packageController.comparePackages);
-router.get(
-  "/packages/:id/stats",
+router.post(
+  "/packages",
   authenticate,
-  packageController.getPackageUsageStats
+  validateRequest(HostingPackageInputSchema),
+  packageController.createPackage
 );
+
+router.get("/packages", packageController.listPackages);
+
+router.get("/packages/:id", packageController.getPackage);
+
+router.patch(
+  "/packages/:id",
+  authenticate,
+  validateRequest(UpdateHostingPackageInputSchema),
+  packageController.updatePackage
+);
+
+router.delete("/packages/:id", authenticate, packageController.deletePackage);
+
+// router.get(
+//   "/packages/:id/stats",
+//   authenticate,
+//   packageController.getPackageUsageStats
+// );
 
 export default router;

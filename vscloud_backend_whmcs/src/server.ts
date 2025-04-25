@@ -12,6 +12,7 @@ import domainRegistrarRoutes from "./routes/domain-registrar.routes";
 
 import dotenv from "dotenv";
 import hostingRoutes from "./routes/hosting.routes";
+import emailRoutes from "./routes/email.routes";
 dotenv.config();
 const app = express();
 
@@ -33,6 +34,9 @@ app.use("/api/domains", domainRoutes);
 app.use("/api/domains", domainRegistrarRoutes);
 // app.use("/api/directadmin", directAdminRoutes);
 app.use("/api/hosting", hostingRoutes);
+// app.use("/api/emails", emailRoutes);
+
+
 // Error handling
 app.use(
   (

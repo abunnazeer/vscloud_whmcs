@@ -7,10 +7,10 @@ import { PrismaClient } from "@prisma/client";
 const prisma = new PrismaClient();
 
 interface ServerFilter {
-  type?: string;
-  status?: string;
-  page?: number;
-  limit?: number;
+  type?: string | undefined;
+  status?: string | undefined;
+  page?: number | undefined;
+  limit?: number | undefined;
 }
 
 export class ServerService {
