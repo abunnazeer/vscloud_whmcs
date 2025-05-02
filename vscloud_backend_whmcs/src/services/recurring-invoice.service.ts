@@ -52,19 +52,28 @@ export class RecurringInvoiceService {
       },
       include: {
         template: true,
-        recipient: true,
       },
     });
 
     for (const recurring of recurringInvoices) {
       try {
+        // Get user data for the recipient
+        const user = await prisma.user.findUnique({
+          where: { id: recurring.recipientId },
+          select: { email: true },
+        });
+
+        if (!user) {
+          throw new Error(`Recipient not found: ${recurring.recipientId}`);
+        }
+
         // Generate new invoice
         const invoice = await this.generateInvoice(recurring);
 
         // Send invoice if autoSend is enabled
-        if (recurring.autoSend && invoice) {
+        if (recurring.autoSend && invoice && user.email) {
           await this.emailService.sendInvoiceEmail({
-            to: recurring.recipient.email,
+            to: user.email,
             invoiceId: invoice.id,
             template: "recurring-invoice",
           });
@@ -88,16 +97,14 @@ export class RecurringInvoiceService {
   private async generateInvoice(recurring: any) {
     const dueDate = this.calculateDueDate(recurring.frequency);
 
+    // Map the data for invoice creation
     return await this.invoiceService.createInvoice({
       userId: recurring.userId,
+      items: [], // Needs to be populated based on template
+      dueDate,
+      notes: recurring.description || undefined,
       templateId: recurring.templateId,
       recipientId: recurring.recipientId,
-      dueDate,
-      amount: recurring.amount,
-      description: recurring.description,
-      metadata: {
-        recurringInvoiceId: recurring.id,
-      },
     });
   }
 
@@ -150,14 +157,14 @@ export class RecurringInvoiceService {
   }
 
   private async logGeneration(
-    recurringId: string,
+    recurringInvoiceId: string,
     invoiceId: string | null,
     success: boolean,
     error?: any
   ) {
     await prisma.recurringInvoiceLog.create({
       data: {
-        recurringInvoiceId: recurringId,
+        recurringInvoiceId,
         invoiceId,
         success,
         error: error ? error.message : null,
@@ -177,34 +184,32 @@ export class RecurringInvoiceService {
       status?: "ACTIVE" | "PAUSED" | "CANCELLED";
     }
   ) {
-    return await prisma.recurringInvoice.update({
+    // Find first to verify ownership
+    const recurringInvoice = await prisma.recurringInvoice.findFirst({
       where: {
-        id_userId: {
-          id,
-          userId,
-        },
+        id,
+        userId,
       },
+    });
+
+    if (!recurringInvoice) {
+      throw new Error("Recurring invoice not found");
+    }
+
+    return await prisma.recurringInvoice.update({
+      where: { id },
       data,
     });
   }
 
   async getRecurringSchedule(id: string, userId: string) {
-    const schedule = await prisma.recurringInvoice.findUnique({
+    const schedule = await prisma.recurringInvoice.findFirst({
       where: {
-        id_userId: {
-          id,
-          userId,
-        },
+        id,
+        userId,
       },
       include: {
         template: true,
-        recipient: true,
-        generationLogs: {
-          orderBy: {
-            createdAt: "desc",
-          },
-          take: 10,
-        },
       },
     });
 
@@ -213,6 +218,30 @@ export class RecurringInvoiceService {
     }
 
     return schedule;
+  }
+
+  async getGenerationLogs(recurringId: string, userId: string) {
+    // First, verify the user owns this recurring invoice schedule
+    const schedule = await prisma.recurringInvoice.findFirst({
+      where: {
+        id: recurringId,
+        userId,
+      },
+    });
+
+    if (!schedule) {
+      throw new Error("Recurring invoice schedule not found");
+    }
+
+    // Fetch the generation logs
+    return await prisma.recurringInvoiceLog.findMany({
+      where: {
+        recurringInvoiceId: recurringId,
+      },
+      orderBy: {
+        createdAt: "desc",
+      },
+    });
   }
 
   async listRecurringSchedules(
@@ -238,12 +267,6 @@ export class RecurringInvoiceService {
         where,
         include: {
           template: true,
-          recipient: true,
-          _count: {
-            select: {
-              generationLogs: true,
-            },
-          },
         },
         orderBy: {
           createdAt: "desc",
@@ -266,14 +289,21 @@ export class RecurringInvoiceService {
   }
 
   async deleteRecurringSchedule(id: string, userId: string) {
+    // Find first to verify ownership
+    const recurringInvoice = await prisma.recurringInvoice.findFirst({
+      where: {
+        id,
+        userId,
+      },
+    });
+
+    if (!recurringInvoice) {
+      throw new Error("Recurring invoice not found");
+    }
+
     // Instead of deleting, mark as cancelled
     return await prisma.recurringInvoice.update({
-      where: {
-        id_userId: {
-          id,
-          userId,
-        },
-      },
+      where: { id },
       data: {
         status: "CANCELLED",
         endDate: new Date(),

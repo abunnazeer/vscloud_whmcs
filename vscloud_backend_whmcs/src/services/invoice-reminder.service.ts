@@ -1,18 +1,78 @@
-// src/services/invoice-reminder.service.ts
+// src/services/invoice-reminder.service.ts - Updated version with sendManualReminder method
 import { prisma } from "../config/database";
 import { EmailService } from "./email.service";
 import { InvoiceService } from "./invoice.service";
 
 export class InvoiceReminderService {
-  sendManualReminder(invoiceId: any, userId: any, message: any) {
-    throw new Error("Method not implemented.");
-  }
   private emailService: EmailService;
   private invoiceService: InvoiceService;
 
   constructor() {
     this.emailService = new EmailService();
     this.invoiceService = new InvoiceService();
+  }
+
+  async sendManualReminder(
+    invoiceId: string,
+    userId: string,
+    message?: string
+  ): Promise<void> {
+    // First, verify the user owns this invoice
+    const invoice = await prisma.invoice.findFirst({
+      where: {
+        id: invoiceId,
+        userId,
+      },
+      include: {
+        user: true,
+      },
+    });
+
+    if (!invoice) {
+      throw new Error("Invoice not found");
+    }
+
+    // Generate PDF if needed
+    const attachmentPath = await this.invoiceService.generatePDF(
+      invoiceId,
+      userId
+    );
+
+    // Get default message if not provided
+    const reminderMessage =
+      message || this.getDefaultReminderMessage("manual", 0, invoice);
+
+    // Get recipient email (either from recipient or user)
+    const recipientEmail = invoice.user.email;
+
+    // Send email
+    await this.emailService.sendReminderEmail({
+      to: recipientEmail,
+      subject: `Invoice ${invoice.number} - Payment Reminder`,
+      message: reminderMessage,
+      attachmentPath,
+    });
+
+    // Update last reminder sent
+    await prisma.invoice.update({
+      where: { id: invoiceId },
+      data: {
+        lastReminderSent: new Date(),
+        remindersSent: {
+          increment: 1,
+        },
+      },
+    });
+
+    // Log reminder
+    await prisma.reminderLog.create({
+      data: {
+        invoiceId,
+        type: "manual",
+        daysFromDue: this.calculateDaysFromDue(invoice.dueDate),
+        successful: true,
+      },
+    });
   }
 
   async checkAndSendReminders() {
@@ -95,7 +155,7 @@ export class InvoiceReminderService {
           ?.replace("{{days}}", daysText)
           ?.replace("{{amount}}", invoice.total.toString())
           ?.replace("{{dueDate}}", invoice.dueDate.toLocaleDateString()) ||
-        this.getDefaultReminderMessage(reminderType, daysText, invoice);
+        this.getDefaultReminderMessage(reminderType, days, invoice);
 
       // Send email
       await this.emailService.sendReminderEmail({
@@ -148,14 +208,14 @@ export class InvoiceReminderService {
 
   private getDefaultReminderMessage(
     type: string,
-    daysText: string,
+    days: number,
     invoice: any
   ): string {
-    const messages = {
+    const messages: Record<string, string> = {
       upcoming: `
         Dear ${invoice.user.name},
         
-        This is a friendly reminder that invoice ${invoice.number} for ${invoice.total} is due ${daysText}.
+        This is a friendly reminder that invoice ${invoice.number} for ${invoice.total} is due in ${days} days.
         
         To ensure timely processing, please make your payment before the due date.
         
@@ -166,7 +226,7 @@ export class InvoiceReminderService {
       overdue: `
         Dear ${invoice.user.name},
         
-        This is a reminder that invoice ${invoice.number} for ${invoice.total} was due ${daysText}.
+        This is a reminder that invoice ${invoice.number} for ${invoice.total} was due ${days} days ago.
         
         Please make your payment as soon as possible to avoid any late fees or service interruptions.
         
@@ -174,9 +234,22 @@ export class InvoiceReminderService {
         
         Thank you for your prompt attention to this matter.
       `,
+      manual: `
+        Dear ${invoice.user.name},
+        
+        This is a reminder regarding invoice ${invoice.number} for ${
+        invoice.total
+      } with due date ${invoice.dueDate.toLocaleDateString()}.
+        
+        Please process this payment at your earliest convenience.
+        
+        If you've already made the payment, please disregard this reminder.
+        
+        Thank you for your business!
+      `,
     };
 
-    return messages[type].trim();
+    return (messages[type] || messages.manual).trim();
   }
 
   async updateReminderSettings(
@@ -204,5 +277,12 @@ export class InvoiceReminderService {
       where: { invoiceId },
       orderBy: { createdAt: "desc" },
     });
+  }
+
+  private calculateDaysFromDue(dueDate: Date): number {
+    const today = new Date();
+    const due = new Date(dueDate);
+    const diffTime = due.getTime() - today.getTime();
+    return Math.ceil(diffTime / (1000 * 60 * 60 * 24));
   }
 }

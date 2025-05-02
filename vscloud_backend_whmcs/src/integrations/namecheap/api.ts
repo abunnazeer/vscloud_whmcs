@@ -1,5 +1,18 @@
+// src/integrations/namecheap/api.ts
 import axios from "axios";
 import { XMLParser, XMLBuilder } from "fast-xml-parser";
+
+// Function to dynamically get the current IP address
+async function getCurrentIP(): Promise<string> {
+  try {
+    const response = await axios.get("https://api.ipify.org?format=json");
+    return response.data.ip;
+  } catch (error) {
+    console.error("Failed to get current IP:", error);
+    // Fall back to the environment variable
+    return process.env.NAMECHEAP_CLIENT_IP || "";
+  }
+}
 
 interface DomainCheckResponse {
   available: boolean;
@@ -14,6 +27,26 @@ interface DomainCheckResponse {
     transfer: number;
   };
   domain: string;
+}
+
+interface NameserverUpdateResponse {
+  success: boolean;
+  message?: string;
+}
+
+interface DomainTransferResponse {
+  success: boolean;
+  orderId?: string;
+  transactionId?: string;
+  message?: string;
+}
+
+interface DomainRenewResponse {
+  success: boolean;
+  orderId?: string;
+  transactionId?: string;
+  expiryDate?: string;
+  message?: string;
 }
 
 export class NamecheapAPI {
@@ -43,7 +76,19 @@ export class NamecheapAPI {
     this.builder = new XMLBuilder();
   }
 
-  private generateApiParams(command: string, params: Record<string, any> = {}) {
+  // Method to update client IP dynamically
+  async updateClientIP(): Promise<void> {
+    this.clientIp = await getCurrentIP();
+    console.log(`Updated client IP to: ${this.clientIp}`);
+  }
+
+  private async generateApiParams(
+    command: string,
+    params: Record<string, any> = {}
+  ) {
+    // Update client IP before generating parameters
+    await this.updateClientIP();
+
     const apiParams = {
       ApiUser: this.apiUser,
       ApiKey: this.apiKey,
@@ -91,7 +136,7 @@ export class NamecheapAPI {
     try {
       console.log(`Checking availability for domain: ${domainName}`);
 
-      const params = this.generateApiParams("domains.check", {
+      const params = await this.generateApiParams("domains.check", {
         DomainList: domainName,
       });
 
@@ -163,7 +208,7 @@ export class NamecheapAPI {
     } = {}
   ): Promise<{ success: boolean; orderId?: string; transactionId?: string }> {
     try {
-      const params = this.generateApiParams("domains.create", {
+      const params = await this.generateApiParams("domains.create", {
         DomainName: domainName,
         Years: years,
         ...(options.nameservers && {
@@ -174,12 +219,12 @@ export class NamecheapAPI {
       });
       const response = await axios.post(this.baseUrl, null, { params });
       const result = this.parser.parse(response.data);
+      const apiResponse = this.validateApiResponse(result);
       return {
-        success: result.ApiResponse.Status === "OK",
-        orderId:
-          result.ApiResponse.CommandResponse?.DomainCreateResult?.OrderId,
+        success: apiResponse["@_Status"] === "OK",
+        orderId: apiResponse.CommandResponse?.DomainCreateResult?.["@_OrderId"],
         transactionId:
-          result.ApiResponse.CommandResponse?.DomainCreateResult?.TransactionID,
+          apiResponse.CommandResponse?.DomainCreateResult?.["@_TransactionID"],
       };
     } catch (error) {
       console.error("Domain registration failed:", error);
@@ -194,17 +239,18 @@ export class NamecheapAPI {
     whoisGuard: boolean;
   }> {
     try {
-      const params = this.generateApiParams("domains.getInfo", {
+      const params = await this.generateApiParams("domains.getInfo", {
         DomainName: domainName,
       });
       const response = await axios.get(this.baseUrl, { params });
       const result = this.parser.parse(response.data);
-      const domainInfo = result.ApiResponse.CommandResponse.DomainGetInfoResult;
+      const apiResponse = this.validateApiResponse(result);
+      const domainInfo = apiResponse.CommandResponse.DomainGetInfoResult;
       return {
-        status: domainInfo.Status,
+        status: domainInfo["@_Status"],
         expiryDate: domainInfo.DomainDetails.ExpiredDate,
         nameservers: domainInfo.DnsDetails.Nameservers.split(","),
-        whoisGuard: domainInfo.Whoisguard.Enabled === "True",
+        whoisGuard: domainInfo.Whoisguard["@_Enabled"] === "True",
       };
     } catch (error) {
       console.error("Failed to get domain info:", error);
@@ -212,21 +258,100 @@ export class NamecheapAPI {
     }
   }
 
+  async getAllDomains(
+    pageSize: number = 100,
+    page: number = 1
+  ): Promise<{
+    domains: Array<{
+      name: string;
+      createdDate: string;
+      expiresDate: string;
+      isLocked: boolean;
+      autoRenew: boolean;
+      whoisGuard: string;
+    }>;
+    totalItems: number;
+    totalPages: number;
+    currentPage: number;
+  }> {
+    try {
+      const params = await this.generateApiParams("domains.getList", {
+        PageSize: pageSize,
+        Page: page,
+      });
+
+      console.log(`Fetching domain list from: ${this.baseUrl}`);
+      const response = await axios.get(this.baseUrl, {
+        params,
+        timeout: 15000,
+      });
+
+      console.log("Raw API Response:", response.data);
+      const parsedResponse = this.parser.parse(response.data);
+      console.log(
+        "Parsed API Response:",
+        JSON.stringify(parsedResponse, null, 2)
+      );
+
+      const apiResponse = this.validateApiResponse(parsedResponse);
+      const domainsResult = apiResponse.CommandResponse.DomainGetListResult;
+      const domains = Array.isArray(domainsResult.Domain)
+        ? domainsResult.Domain
+        : domainsResult.Domain
+        ? [domainsResult.Domain]
+        : [];
+
+      // Transform the data into a more usable format
+      const domainsList = domains.map((domain: { [x: string]: any }) => ({
+        name: domain["@_Name"],
+        createdDate: domain["@_Created"],
+        expiresDate: domain["@_Expires"],
+        isLocked: domain["@_IsLocked"] === "true",
+        autoRenew: domain["@_AutoRenew"] === "true",
+        whoisGuard: domain["@_WhoisGuard"],
+      }));
+
+      return {
+        domains: domainsList,
+        totalItems: parseInt(domainsResult["@_TotalItems"] || "0"),
+        totalPages: parseInt(domainsResult["@_TotalPages"] || "1"),
+        currentPage: parseInt(domainsResult["@_CurrentPage"] || "1"),
+      };
+    } catch (error) {
+      console.error("Failed to get domains list:", error);
+      if (error instanceof Error) {
+        throw error;
+      }
+      throw new Error(`Failed to retrieve domain list: ${error}`);
+    }
+  }
+
   async updateNameservers(
     domainName: string,
     nameservers: string[]
-  ): Promise<boolean> {
+  ): Promise<NameserverUpdateResponse> {
     try {
-      const params = this.generateApiParams("domains.dns.setCustom", {
+      const params = await this.generateApiParams("domains.dns.setCustom", {
         DomainName: domainName,
         Nameservers: nameservers.join(","),
       });
       const response = await axios.post(this.baseUrl, null, { params });
       const result = this.parser.parse(response.data);
-      return result.ApiResponse.Status === "OK";
+      const apiResponse = this.validateApiResponse(result);
+
+      return {
+        success: apiResponse["@_Status"] === "OK",
+        message: "Nameservers updated successfully",
+      };
     } catch (error) {
       console.error("Failed to update nameservers:", error);
-      throw new Error("Failed to update nameservers");
+      return {
+        success: false,
+        message:
+          error instanceof Error
+            ? error.message
+            : "Failed to update nameservers",
+      };
     }
   }
 
@@ -241,22 +366,152 @@ export class NamecheapAPI {
     }>
   ): Promise<boolean> {
     try {
-      const params = this.generateApiParams("domains.dns.setHosts", {
+      // Prepare records in the format required by Namecheap API
+      const recordsData = records.map((record, index) => ({
+        [`HostName${index + 1}`]: record.hostname,
+        [`RecordType${index + 1}`]: record.type,
+        [`Address${index + 1}`]: record.address,
+        [`TTL${index + 1}`]: record.ttl || 1800,
+        ...(record.type === "MX" && {
+          [`MXPref${index + 1}`]: record.mxPref || 10,
+        }),
+      }));
+
+      // Flatten the array of objects into a single object
+      const flattenedRecords = recordsData.reduce(
+        (acc, curr) => ({ ...acc, ...curr }),
+        {}
+      );
+
+      const params = await this.generateApiParams("domains.dns.setHosts", {
         DomainName: domainName,
-        Records: records.map(record => ({
-          HostName: record.hostname,
-          RecordType: record.type,
-          Address: record.address,
-          TTL: record.ttl || 1800,
-          MXPref: record.mxPref || 10,
-        })),
+        ...flattenedRecords,
       });
+
       const response = await axios.post(this.baseUrl, null, { params });
       const result = this.parser.parse(response.data);
-      return result.ApiResponse.Status === "OK";
+      const apiResponse = this.validateApiResponse(result);
+
+      return apiResponse["@_Status"] === "OK";
     } catch (error) {
       console.error("Failed to set DNS records:", error);
       throw new Error("Failed to set DNS records");
+    }
+  }
+
+  async transferDomain(
+    domainName: string,
+    authCode: string,
+    years: number = 1,
+    options: {
+      nameservers?: string[] | undefined;
+      whoisGuard?: boolean | undefined;
+    } = {}
+  ): Promise<DomainTransferResponse> {
+    try {
+      const params = await this.generateApiParams("domains.transfer.create", {
+        DomainName: domainName,
+        Years: years,
+        EPPCode: authCode,
+        ...(options.nameservers && {
+          Nameservers: options.nameservers.join(","),
+        }),
+        AddFreeWhoisguard: options.whoisGuard ? "yes" : "no",
+        WGEnabled: options.whoisGuard ? "yes" : "no",
+      });
+
+      const response = await axios.post(this.baseUrl, null, { params });
+      const result = this.parser.parse(response.data);
+      const apiResponse = this.validateApiResponse(result);
+
+      if (apiResponse["@_Status"] === "OK") {
+        const transferResult =
+          apiResponse.CommandResponse.DomainTransferCreateResult;
+        return {
+          success: true,
+          orderId: transferResult["@_OrderId"],
+          transactionId: transferResult["@_TransactionID"],
+        };
+      }
+
+      return {
+        success: false,
+        message: "Transfer request failed",
+      };
+    } catch (error) {
+      console.error("Domain transfer failed:", error);
+      return {
+        success: false,
+        message:
+          error instanceof Error
+            ? error.message
+            : "Failed to initiate domain transfer",
+      };
+    }
+  }
+
+  async renewDomain(
+    domainName: string,
+    years: number = 1
+  ): Promise<DomainRenewResponse> {
+    try {
+      const params = await this.generateApiParams("domains.renew", {
+        DomainName: domainName,
+        Years: years,
+      });
+
+      const response = await axios.post(this.baseUrl, null, { params });
+      const result = this.parser.parse(response.data);
+      const apiResponse = this.validateApiResponse(result);
+
+      if (apiResponse["@_Status"] === "OK") {
+        const renewResult = apiResponse.CommandResponse.DomainRenewResult;
+        return {
+          success: true,
+          orderId: renewResult["@_OrderId"],
+          transactionId: renewResult["@_TransactionID"],
+          expiryDate: renewResult["@_DomainDetails"]?.["@_ExpiredDate"],
+        };
+      }
+
+      return {
+        success: false,
+        message: "Domain renewal failed",
+      };
+    } catch (error) {
+      console.error("Domain renewal failed:", error);
+      return {
+        success: false,
+        message:
+          error instanceof Error ? error.message : "Failed to renew domain",
+      };
+    }
+  }
+
+  async getTransferStatus(
+    transferId: string
+  ): Promise<{ status: string; statusDescription: string }> {
+    try {
+      const params = await this.generateApiParams(
+        "domains.transfer.getStatus",
+        {
+          TransferID: transferId,
+        }
+      );
+
+      const response = await axios.get(this.baseUrl, { params });
+      const result = this.parser.parse(response.data);
+      const apiResponse = this.validateApiResponse(result);
+
+      const transferStatus =
+        apiResponse.CommandResponse.TransferGetStatusResult;
+      return {
+        status: transferStatus["@_Status"],
+        statusDescription: transferStatus["@_StatusDescription"],
+      };
+    } catch (error) {
+      console.error("Failed to get transfer status:", error);
+      throw new Error("Failed to get domain transfer status");
     }
   }
 }

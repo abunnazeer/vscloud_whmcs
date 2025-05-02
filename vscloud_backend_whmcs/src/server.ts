@@ -2,17 +2,24 @@
 import express from "express";
 import cors from "cors";
 import helmet from "helmet";
+import dotenv from "dotenv";
 import morgan from "morgan";
 import authRoutes from "./routes/auth.routes";
 import domainRoutes from "./routes/domain.routes";
-import directAdminRoutes from "./routes/directadmin.routes";
+// import directAdminRoutes from "./routes/directadmin.routes";
 
-// import hostingRoutes from "./routes/hosting.routes";
+// import invoiceRoutes from "./routes/invoice.routes";
+
+import invoiceRoutes from "./routes/invoice.routes";
+import invoiceTemplateRoutes from "./routes/invoice-template.routes";
+import invoiceReminderRoutes from "./routes/invoice-reminder.routes";
+import recurringInvoiceRoutes from "./routes/recurring-invoice.routes";
+import invoiceAnalyticsRoutes from "./routes/invoice-analytics.routes";
 import domainRegistrarRoutes from "./routes/domain-registrar.routes";
 
-import dotenv from "dotenv";
 import hostingRoutes from "./routes/hosting.routes";
-import emailRoutes from "./routes/email.routes";
+// import emailRoutes from "./routes/email.routes";
+import billingRoutes from "./routes/billing.routes";
 dotenv.config();
 const app = express();
 
@@ -32,9 +39,13 @@ app.use(express.urlencoded({ extended: true }));
 app.use("/api/auth", authRoutes);
 app.use("/api/domains", domainRoutes);
 app.use("/api/domains", domainRegistrarRoutes);
-// app.use("/api/directadmin", directAdminRoutes);
+app.use("/api/billing", billingRoutes);
 app.use("/api/hosting", hostingRoutes);
-// app.use("/api/emails", emailRoutes);
+app.use("/api/invoices", invoiceRoutes);
+app.use("/api/invoice-templates", invoiceTemplateRoutes);
+app.use("/api/invoice-reminders", invoiceReminderRoutes);
+app.use("/api/recurring-invoices", recurringInvoiceRoutes);
+app.use("/api/invoice-analytics", invoiceAnalyticsRoutes);
 
 
 // Error handling

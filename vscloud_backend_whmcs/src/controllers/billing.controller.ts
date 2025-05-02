@@ -1,5 +1,6 @@
 // src/controllers/billing.controller.ts
 import { Request, Response } from "express";
+import crypto from "crypto";
 import { BillingService } from "../services/billing.service";
 import { PaystackService } from "../integrations/paystack/paystack.service";
 
@@ -14,6 +15,8 @@ export class BillingController {
 
   public createInvoice = async (req: Request, res: Response): Promise<void> => {
     try {
+      console.log("Create invoice request:", req.body);
+
       const userId = req.user?.id;
       if (!userId) {
         res.status(401).json({
@@ -23,10 +26,33 @@ export class BillingController {
         return;
       }
 
+      if (
+        !req.body ||
+        !req.body.items ||
+        !Array.isArray(req.body.items) ||
+        req.body.items.length === 0
+      ) {
+        res.status(400).json({
+          status: "error",
+          message: "Invoice items are required",
+        });
+        return;
+      }
+
+      if (!req.body.dueDate) {
+        res.status(400).json({
+          status: "error",
+          message: "Due date is required",
+        });
+        return;
+      }
+
       const invoice = await this.billingService.createInvoice({
         userId,
         items: req.body.items,
         dueDate: new Date(req.body.dueDate),
+        notes: req.body.notes,
+        recipientId: req.body.recipientId,
       });
 
       res.status(201).json({
@@ -34,10 +60,37 @@ export class BillingController {
         data: { invoice },
       });
     } catch (error) {
+      console.error("Error in createInvoice:", error);
       res.status(400).json({
         status: "error",
         message:
           error instanceof Error ? error.message : "Failed to create invoice",
+      });
+    }
+  };
+
+  public getInvoice = async (req: Request, res: Response): Promise<void> => {
+    try {
+      const userId = req.user?.id;
+      if (!userId) {
+        res.status(401).json({
+          status: "error",
+          message: "User not authenticated",
+        });
+        return;
+      }
+
+      const { id } = req.params;
+      const invoice = await this.billingService.getInvoiceById(id, userId);
+
+      res.json({
+        status: "success",
+        data: { invoice },
+      });
+    } catch (error) {
+      res.status(404).json({
+        status: "error",
+        message: error instanceof Error ? error.message : "Invoice not found",
       });
     }
   };
@@ -59,7 +112,18 @@ export class BillingController {
       }
 
       const { invoiceId } = req.body;
-      const callbackUrl = `${process.env.FRONTEND_URL}/payment/verify`;
+
+      if (!invoiceId) {
+        res.status(400).json({
+          status: "error",
+          message: "Invoice ID is required",
+        });
+        return;
+      }
+
+      const callbackUrl = `${
+        process.env.FRONTEND_URL || "http://localhost:3000"
+      }/payment/verify`;
 
       const paymentData = await this.billingService.initializePayment({
         userId,
@@ -116,8 +180,18 @@ export class BillingController {
 
   public handleWebhook = async (req: Request, res: Response): Promise<void> => {
     try {
+      // Verify webhook signature
+      const secretKey = process.env.PAYSTACK_SECRET_KEY || "";
+      if (!secretKey) {
+        console.error("Missing PAYSTACK_SECRET_KEY environment variable");
+        res
+          .status(500)
+          .json({ status: "error", message: "Server configuration error" });
+        return;
+      }
+
       const hash = crypto
-        .createHmac("sha512", process.env.PAYSTACK_SECRET_KEY || "")
+        .createHmac("sha512", secretKey)
         .update(JSON.stringify(req.body))
         .digest("hex");
 
@@ -134,10 +208,12 @@ export class BillingController {
           break;
 
         case "refund.processed":
-          // Handle refund processing
+          // Handle refund processing (implement as needed)
+          console.log("Refund processed:", event.data);
           break;
 
-        // Add more event handlers as needed
+        default:
+          console.log(`Unhandled webhook event: ${event.event}`);
       }
 
       res.sendStatus(200);
@@ -200,9 +276,25 @@ export class BillingController {
 
       const { paymentId, amount, reason } = req.body;
 
+      if (!paymentId) {
+        res.status(400).json({
+          status: "error",
+          message: "Payment ID is required",
+        });
+        return;
+      }
+
+      if (!reason) {
+        res.status(400).json({
+          status: "error",
+          message: "Refund reason is required",
+        });
+        return;
+      }
+
       const refund = await this.billingService.refundPayment({
         paymentId,
-        amount,
+        amount: amount ? Number(amount) : undefined,
         reason,
       });
 
@@ -215,35 +307,6 @@ export class BillingController {
         status: "error",
         message:
           error instanceof Error ? error.message : "Failed to process refund",
-      });
-    }
-  };
-
-  public getAvailableCredits = async (
-    req: Request,
-    res: Response
-  ): Promise<void> => {
-    try {
-      const userId = req.user?.id;
-      if (!userId) {
-        res.status(401).json({
-          status: "error",
-          message: "User not authenticated",
-        });
-        return;
-      }
-
-      const credits = await this.billingService.getAvailableCredits(userId);
-
-      res.json({
-        status: "success",
-        data: credits,
-      });
-    } catch (error) {
-      res.status(400).json({
-        status: "error",
-        message:
-          error instanceof Error ? error.message : "Failed to fetch credits",
       });
     }
   };

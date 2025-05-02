@@ -2,6 +2,49 @@
 import { prisma } from "../config/database";
 import { PaystackService } from "../integrations/paystack/paystack.service";
 import { Decimal } from "@prisma/client/runtime/library";
+import { InvoiceStatus, PaymentStatus, Prisma } from "@prisma/client";
+
+interface InvoiceItem {
+  description: string;
+  quantity: number;
+  unitPrice: number;
+  type: string;
+  relatedId?: string;
+}
+
+interface InvoiceData {
+  userId: string;
+  items: InvoiceItem[];
+  dueDate: Date;
+  notes?: string;
+  recipientId?: string;
+}
+
+interface PaymentInitialization {
+  userId: string;
+  invoiceId: string;
+  email: string;
+  callbackUrl: string;
+}
+
+interface RefundRequest {
+  paymentId: string;
+  amount?: number;
+  reason: string;
+}
+
+interface CreditData {
+  userId: string;
+  amount: number;
+  description: string;
+  expiryDate?: Date;
+}
+
+interface InvoiceFilter {
+  status?: string;
+  page?: number;
+  limit?: number;
+}
 
 export class BillingService {
   private paystackService: PaystackService;
@@ -19,18 +62,8 @@ export class BillingService {
     return `${prefix}-${timestamp}-${random}`;
   }
 
-  async createInvoice(data: {
-    userId: string;
-    items: Array<{
-      description: string;
-      quantity: number;
-      unitPrice: number;
-      type: string;
-      relatedId?: string;
-    }>;
-    dueDate: Date;
-  }) {
-    const { userId, items, dueDate } = data;
+  async createInvoice(data: InvoiceData) {
+    const { userId, items, dueDate, notes, recipientId } = data;
 
     // Calculate totals
     const calculations = items.map(item => ({
@@ -50,41 +83,43 @@ export class BillingService {
     );
 
     // Create invoice with items
-    const invoice = await prisma.invoice.create({
-      data: {
-        userId,
-        number: this.generateInvoiceNumber(),
-        subtotal: invoiceTotal.subtotal,
-        tax: invoiceTotal.tax,
-        total: invoiceTotal.total,
-        dueDate,
-        items: {
-          create: calculations.map(item => ({
-            description: item.description,
-            quantity: item.quantity,
-            unitPrice: new Decimal(item.unitPrice),
-            subtotal: item.subtotal,
-            tax: item.tax,
-            total: item.total,
-            type: item.type,
-            relatedId: item.relatedId,
-          })),
+    try {
+      const invoice = await prisma.invoice.create({
+        data: {
+          userId,
+          number: this.generateInvoiceNumber(),
+          // Convert Decimal to number for total
+          total: Number(invoiceTotal.total),
+          status: "PENDING" as InvoiceStatus,
+          dueDate,
+          notes: notes || null,
+          recipientId: recipientId || null,
+          items: {
+            create: calculations.map(item => ({
+              description: item.description,
+              quantity: item.quantity,
+              price: Number(item.unitPrice),
+              total: Number(item.total),
+              type: item.type,
+              relatedId: item.relatedId || null,
+            })),
+          },
         },
-      },
-      include: {
-        items: true,
-      },
-    });
+        include: {
+          items: true,
+        },
+      });
 
-    return invoice;
+      return invoice;
+    } catch (error) {
+      console.error("Error creating invoice:", error);
+      throw error;
+    }
   }
 
-  async initializePayment(data: {
-    userId: string;
-    invoiceId: string;
-    email: string;
-    callbackUrl: string;
-  }) {
+  // In billing.service.ts - Update the initializePayment method
+
+  async initializePayment(data: PaymentInitialization) {
     const invoice = await prisma.invoice.findUnique({
       where: { id: data.invoiceId },
       include: { user: true },
@@ -98,8 +133,11 @@ export class BillingService {
       throw new Error("Unauthorized access to invoice");
     }
 
+    // Fix: Ensure amount is an integer (in kobo) with no decimal places
+    const amountInKobo = Math.round(Number(invoice.total) * 100);
+
     const paymentResponse = await this.paystackService.initializeTransaction({
-      amount: Number(invoice.total),
+      amount: amountInKobo, // Now correctly formatted as an integer
       email: data.email,
       reference: `inv_${invoice.id}`,
       callbackUrl: data.callbackUrl,
@@ -112,14 +150,12 @@ export class BillingService {
     // Create payment record
     await prisma.payment.create({
       data: {
-        userId: data.userId,
         invoiceId: invoice.id,
-        amount: invoice.total,
-        paymentMethod: "PAYSTACK",
-        status: "PENDING",
-        transactionId: paymentResponse.data.reference,
-        currency: "NGN",
-        metadata: paymentResponse.data,
+        amount: Number(invoice.total),
+        status: "PENDING" as PaymentStatus,
+        reference: paymentResponse.data.reference,
+        createdAt: new Date(),
+        updatedAt: new Date(),
       },
     });
 
@@ -133,7 +169,7 @@ export class BillingService {
 
     if (verification.data.status === "success") {
       const payment = await prisma.payment.findFirst({
-        where: { transactionId: reference },
+        where: { reference },
         include: { invoice: true },
       });
 
@@ -146,18 +182,16 @@ export class BillingService {
         prisma.payment.update({
           where: { id: payment.id },
           data: {
-            status: "COMPLETED",
-            metadata: {
-              ...payment.metadata,
-              verification: verification.data,
-            },
+            status: "COMPLETED" as PaymentStatus,
+            updatedAt: new Date(),
           },
         }),
         prisma.invoice.update({
-          where: { id: payment.invoiceId! },
+          where: { id: payment.invoiceId },
           data: {
-            status: "PAID",
+            status: "PAID" as InvoiceStatus,
             paidDate: new Date(),
+            updatedAt: new Date(),
           },
         }),
       ]);
@@ -168,11 +202,9 @@ export class BillingService {
     return { success: false, data: verification.data };
   }
 
-  async refundPayment(data: {
-    paymentId: string;
-    amount?: number;
-    reason: string;
-  }) {
+  // In billing.service.ts - Update the refundPayment method
+
+  async refundPayment(data: RefundRequest) {
     const payment = await prisma.payment.findUnique({
       where: { id: data.paymentId },
       include: { invoice: true },
@@ -182,9 +214,24 @@ export class BillingService {
       throw new Error("Payment not found");
     }
 
+    // If a specific refund amount is provided, validate it
+    if (data.amount !== undefined) {
+      // Paystack minimum refund amount is NGN50
+      if (data.amount < 50) {
+        throw new Error("Refund amount cannot be less than NGN50");
+      }
+
+      // Also ensure the refund amount is not greater than the original payment
+      if (data.amount > Number(payment.amount)) {
+        throw new Error(
+          "Refund amount cannot exceed the original payment amount"
+        );
+      }
+    }
+
     const refundResponse = await this.paystackService.initiateRefund({
-      transactionReference: payment.transactionId!,
-      amount: data.amount,
+      transactionReference: payment.reference!,
+      amount: data.amount ? Math.round(Number(data.amount) * 100) : undefined, // Convert to kobo and ensure integer
       merchantNote: data.reason,
     });
 
@@ -193,52 +240,30 @@ export class BillingService {
       prisma.payment.update({
         where: { id: payment.id },
         data: {
-          status: "REFUNDED",
-          refundedAmount: new Decimal(data.amount || Number(payment.amount)),
-          refundReason: data.reason,
+          status: "REFUNDED" as PaymentStatus,
+          updatedAt: new Date(),
         },
       }),
       prisma.invoice.update({
-        where: { id: payment.invoiceId! },
+        where: { id: payment.invoiceId },
         data: {
-          status: "REFUNDED",
+          status: "CANCELLED" as InvoiceStatus,
+          updatedAt: new Date(),
         },
       }),
     ]);
 
     return refundResponse;
   }
-
-  async addCredit(data: {
-    userId: string;
-    amount: number;
-    description: string;
-    expiryDate?: Date;
-  }) {
-    return await prisma.credit.create({
-      data: {
-        userId: data.userId,
-        amount: new Decimal(data.amount),
-        description: data.description,
-        expiryDate: data.expiryDate,
-      },
-    });
-  }
-
-  async getInvoiceHistory(
-    userId: string,
-    params: {
-      status?: string;
-      page?: number;
-      limit?: number;
-    }
-  ) {
+  async getInvoiceHistory(userId: string, params: InvoiceFilter) {
     const { status, page = 1, limit = 10 } = params;
     const skip = (page - 1) * limit;
 
-    const where = {
+    // Create a properly typed where condition
+    const where: Prisma.InvoiceWhereInput = {
       userId,
-      ...(status && { status }),
+      // Only add status if it's provided and cast it to InvoiceStatus
+      ...(status && { status: status as InvoiceStatus }),
     };
 
     const [invoices, total] = await Promise.all([
@@ -268,23 +293,22 @@ export class BillingService {
     };
   }
 
-  async getAvailableCredits(userId: string) {
-    const credits = await prisma.credit.findMany({
+  async getInvoiceById(invoiceId: string, userId: string) {
+    const invoice = await prisma.invoice.findFirst({
       where: {
-        userId,
-        isUsed: false,
-        OR: [{ expiryDate: null }, { expiryDate: { gt: new Date() } }],
+        id: invoiceId,
+        userId: userId,
+      },
+      include: {
+        items: true,
+        payments: true,
       },
     });
 
-    const totalCredit = credits.reduce(
-      (sum, credit) => sum.plus(credit.amount),
-      new Decimal(0)
-    );
+    if (!invoice) {
+      throw new Error("Invoice not found");
+    }
 
-    return {
-      credits,
-      totalAmount: totalCredit,
-    };
+    return invoice;
   }
 }

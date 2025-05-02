@@ -1,106 +1,165 @@
 // src/models/schemas/invoice.schema.ts
 import { z } from "zod";
 
-// Base schemas
+// Invoice item schema
 const invoiceItemSchema = z.object({
   description: z.string().min(1, "Description is required"),
-  quantity: z.number().positive("Quantity must be positive"),
-  unitPrice: z.number().nonnegative("Unit price must be non-negative"),
+  quantity: z.number().int().positive("Quantity must be a positive integer"),
+  unitPrice: z.number().positive("Unit price must be a positive number"),
   type: z.string().min(1, "Type is required"),
   relatedId: z.string().optional(),
-  taxRate: z.number().min(0).max(100).default(7.5), // Default VAT rate
 });
 
-const invoiceRecipientSchema = z.object({
-  name: z.string().min(1, "Name is required"),
-  email: z.string().email("Invalid email address"),
-  address: z.string().optional(),
-  city: z.string().optional(),
-  state: z.string().optional(),
-  country: z.string().optional(),
-  postalCode: z.string().optional(),
-});
+// Create invoice schema
+// export const createInvoiceSchema = z.object({
+//   body: z.object({
+//     items: z.array(invoiceItemSchema).min(1, "At least one item is required"),
+//     dueDate: z.string().refine(value => !isNaN(Date.parse(value)), {
+//       message: "Due date must be a valid date",
+//     }),
+//     notes: z.string().optional(),
+//     recipientId: z.string().optional(),
+//   }),
+// });
 
-// Main schemas
+
+
 export const createInvoiceSchema = z.object({
-  items: z.array(invoiceItemSchema).min(1, "At least one item is required"),
-  dueDate: z.string().datetime("Invalid date format"),
-  notes: z.string().optional(),
-  recipient: invoiceRecipientSchema.optional(),
-  templateId: z.string().optional(),
+  body: z.object({
+    // This line is important - validation expects 'body' property
+    items: z.array(
+      z.object({
+        description: z.string(),
+        quantity: z.number(),
+        unitPrice: z.number(),
+        type: z.string(),
+        relatedId: z.string().optional(),
+      })
+    ),
+    dueDate: z.string(),
+    notes: z.string().optional(),
+  }),
 });
 
+// Update invoice status schema
 export const updateInvoiceSchema = z.object({
-  status: z.enum([
-    "DRAFT",
-    "PENDING",
-    "PAID",
-    "OVERDUE",
-    "CANCELLED",
-    "REFUNDED",
-  ]),
-  notes: z.string().optional(),
+  body: z.object({
+    status: z.enum(["DRAFT", "PENDING", "PAID", "OVERDUE", "CANCELLED"], {
+      required_error: "Status is required",
+      invalid_type_error: "Status must be a valid invoice status",
+    }),
+  }),
 });
 
-export const recurringInvoiceSchema = z.object({
-  templateId: z.string(),
-  frequency: z.enum(["WEEKLY", "MONTHLY", "QUARTERLY", "ANNUALLY"]),
-  startDate: z.string().datetime("Invalid start date"),
-  endDate: z.string().datetime("Invalid end date").optional(),
-  recipientId: z.string(),
-  autoSend: z.boolean().default(false),
-});
-
+// Send invoice email schema
 export const sendInvoiceEmailSchema = z.object({
-  email: z.string().email("Invalid email address"),
-  message: z.string().optional(),
-  includeAttachment: z.boolean().default(true),
-  ccEmails: z.array(z.string().email("Invalid CC email address")).optional(),
+  body: z.object({
+    email: z.string().email("Invalid email address"),
+    message: z.string().optional(),
+  }),
+});
+
+// Recurring invoice schema
+export const recurringInvoiceSchema = z.object({
+  body: z.object({
+    templateId: z.string().uuid("Template ID must be a valid UUID"),
+    frequency: z.enum(["daily", "weekly", "monthly", "yearly"], {
+      required_error: "Frequency is required",
+      invalid_type_error: "Frequency must be daily, weekly, monthly, or yearly",
+    }),
+    startDate: z.string().refine(value => !isNaN(Date.parse(value)), {
+      message: "Start date must be a valid date",
+    }),
+    endDate: z
+      .string()
+      .refine(value => !isNaN(Date.parse(value)), {
+        message: "End date must be a valid date",
+      })
+      .optional(),
+    recipientId: z.string().optional(),
+    autoSend: z.boolean().optional(),
+  }),
 });
 
 // Invoice template schemas
 export const createTemplateSchema = z.object({
-  name: z.string().min(1, "Template name is required"),
-  description: z.string().optional(),
-  items: z.array(invoiceItemSchema),
-  defaultDueDate: z.number().min(1, "Default due days must be positive"),
-  defaultNotes: z.string().optional(),
-  customFields: z
-    .array(
-      z.object({
-        key: z.string(),
-        label: z.string(),
-        type: z.enum(["text", "number", "date", "boolean"]),
-        required: z.boolean().default(false),
-        defaultValue: z.string().optional(),
-      })
-    )
-    .optional(),
-  isActive: z.boolean().default(true),
+  body: z.object({
+    name: z.string().min(1, "Template name is required"),
+    description: z.string().optional(),
+    items: z.array(invoiceItemSchema).min(1, "At least one item is required"),
+    notes: z.string().optional(),
+    isActive: z.boolean().optional(),
+    paymentTerms: z.number().int().positive().optional(),
+  }),
 });
 
-// Analytics request schema
-export const analyticsRequestSchema = z.object({
-  startDate: z.string().datetime("Invalid start date"),
-  endDate: z.string().datetime("Invalid end date"),
-  groupBy: z.enum(["day", "week", "month", "year"]).optional(),
-  includeUnpaid: z.boolean().default(true),
+export const updateTemplateSchema = z.object({
+  body: z.object({
+    name: z.string().min(1, "Template name is required").optional(),
+    description: z.string().optional(),
+    items: z
+      .array(
+        z.object({
+          id: z.string().optional(),
+          description: z.string().min(1, "Description is required"),
+          quantity: z
+            .number()
+            .int()
+            .positive("Quantity must be a positive integer"),
+          unitPrice: z
+            .number()
+            .positive("Unit price must be a positive number"),
+          type: z.string().min(1, "Type is required"),
+        })
+      )
+      .optional(),
+    notes: z.string().optional(),
+    isActive: z.boolean().optional(),
+    paymentTerms: z.number().int().positive().optional(),
+  }),
+});
+
+export const duplicateTemplateSchema = z.object({
+  body: z.object({
+    name: z.string().min(1, "New template name is required"),
+  }),
+});
+
+export const generateFromTemplateSchema = z.object({
+  body: z.object({
+    recipientId: z.string().uuid("Recipient ID must be a valid UUID"),
+    dueDate: z.string().refine(value => !isNaN(Date.parse(value)), {
+      message: "Due date must be a valid date",
+    }),
+    adjustments: z
+      .array(
+        z.object({
+          itemId: z.string().uuid("Item ID must be a valid UUID"),
+          quantity: z.number().int().positive().optional(),
+          unitPrice: z.number().positive().optional(),
+          description: z.string().optional(),
+        })
+      )
+      .optional(),
+    additionalItems: z.array(invoiceItemSchema).optional(),
+    notes: z.string().optional(),
+  }),
 });
 
 // Reminder settings schema
 export const reminderSettingsSchema = z.object({
-  enabled: z.boolean().default(true),
-  beforeDueDays: z.array(z.number()).default([7, 3, 1]),
-  afterDueDays: z.array(z.number()).default([1, 3, 7, 14]),
-  includeAttachment: z.boolean().default(true),
-  customMessage: z.string().optional(),
+  body: z.object({
+    enabled: z.boolean(),
+    beforeDueDays: z.array(z.number().int().nonnegative()),
+    afterDueDays: z.array(z.number().int().positive()),
+    includeAttachment: z.boolean(),
+    customMessage: z.string().optional(),
+  }),
 });
 
-// Export types
-export type CreateInvoiceInput = z.infer<typeof createInvoiceSchema>;
-export type UpdateInvoiceInput = z.infer<typeof updateInvoiceSchema>;
-export type RecurringInvoiceInput = z.infer<typeof recurringInvoiceSchema>;
-export type SendInvoiceEmailInput = z.infer<typeof sendInvoiceEmailSchema>;
-export type CreateTemplateInput = z.infer<typeof createTemplateSchema>;
-export type AnalyticsRequestInput = z.infer<typeof analyticsRequestSchema>;
-export type ReminderSettingsInput = z.infer<typeof reminderSettingsSchema>;
+// Manual reminder schema
+export const manualReminderSchema = z.object({
+  body: z.object({
+    message: z.string().optional(),
+  }),
+});

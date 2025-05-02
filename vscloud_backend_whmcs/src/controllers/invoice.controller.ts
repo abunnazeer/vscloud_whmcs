@@ -12,15 +12,66 @@ export class InvoiceController {
   }
 
   public createInvoice = async (req: Request, res: Response): Promise<void> => {
+    console.log("hello");
     try {
+      // Debug logs to understand what's being received
+      console.log("Request headers:", req.headers);
+      console.log("Request body type:", typeof req.body);
+      console.log("Request body:", JSON.stringify(req.body, null, 2));
+      console.log("Items in body:", req.body?.items ? "Present" : "Missing");
+
       const userId = req.user?.id;
+      console.log("User ID:", userId);
+
       if (!userId) {
+        console.log("Authentication error: No user ID found");
         res.status(401).json({
           status: "error",
           message: "User not authenticated",
         });
         return;
       }
+
+      // Check if required data exists before continuing
+      if (!req.body) {
+        console.log("Error: Request body is undefined or null");
+        res.status(400).json({
+          status: "error",
+          message: "Request body is missing",
+          details: { body: req.body },
+        });
+        return;
+      }
+
+      if (!req.body.items || !Array.isArray(req.body.items)) {
+        console.log(
+          "Error: Items array is missing or not an array",
+          req.body.items
+        );
+        res.status(400).json({
+          status: "error",
+          message: "Items array is required and must be an array",
+          details: { items: req.body.items },
+        });
+        return;
+      }
+
+      if (!req.body.dueDate) {
+        console.log("Error: Due date is missing", req.body.dueDate);
+        res.status(400).json({
+          status: "error",
+          message: "Due date is required",
+          details: { dueDate: req.body.dueDate },
+        });
+        return;
+      }
+
+      console.log("Creating invoice with data:", {
+        userId,
+        itemsCount: req.body.items.length,
+        dueDate: req.body.dueDate,
+        notesProvided: !!req.body.notes,
+      });
 
       const invoice = await this.invoiceService.createInvoice({
         userId,
@@ -29,11 +80,20 @@ export class InvoiceController {
         notes: req.body.notes,
       });
 
+      console.log("Invoice created successfully:", invoice.id);
+
       res.status(201).json({
         status: "success",
         data: { invoice },
       });
     } catch (error) {
+      console.error("Error creating invoice:", error);
+
+      if (error instanceof Error) {
+        console.log("Error message:", error.message);
+        console.log("Error stack:", error.stack);
+      }
+
       res.status(400).json({
         status: "error",
         message:
@@ -41,7 +101,6 @@ export class InvoiceController {
       });
     }
   };
-
   public getInvoice = async (req: Request, res: Response): Promise<void> => {
     try {
       const userId = req.user?.id;

@@ -1,5 +1,7 @@
 // src/services/email.service.ts
 import nodemailer from "nodemailer";
+import path from "path";
+import fs from "fs";
 
 export class EmailService {
   private transporter: nodemailer.Transporter;
@@ -85,6 +87,88 @@ export class EmailService {
     } catch (error) {
       console.error("Failed to send password reset email:", error);
       throw new Error("Failed to send password reset email");
+    }
+  }
+
+  async sendReminderEmail(options: {
+    to: string;
+    subject: string;
+    message: string;
+    attachmentPath?: string;
+  }): Promise<void> {
+    try {
+      const mailOptions: nodemailer.SendMailOptions = {
+        from: `"VSCloud" <${process.env.SMTP_FROM}>`,
+        to: options.to,
+        subject: options.subject,
+        html: `
+          <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
+            <h1 style="color: #333;">Invoice Reminder</h1>
+            <div style="margin: 16px 0;">
+              ${options.message.replace(/\n/g, "<br>")}
+            </div>
+            <p>If you've already made the payment, please disregard this reminder.</p>
+            <p>For any questions, please contact our support team.</p>
+          </div>
+        `,
+      };
+
+      // Add attachment if provided
+      if (options.attachmentPath && fs.existsSync(options.attachmentPath)) {
+        mailOptions.attachments = [
+          {
+            filename: path.basename(options.attachmentPath),
+            path: options.attachmentPath,
+          },
+        ];
+      }
+
+      const info = await this.transporter.sendMail(mailOptions);
+      console.log("Reminder email sent:", info.messageId);
+    } catch (error) {
+      console.error("Failed to send reminder email:", error);
+      throw new Error("Failed to send reminder email");
+    }
+  }
+
+  async sendInvoiceEmail(options: {
+    to: string;
+    invoiceId: string;
+    template: string;
+    message?: string;
+    attachmentPath?: string;
+  }): Promise<void> {
+    try {
+      const mailOptions: nodemailer.SendMailOptions = {
+        from: `"VSCloud" <${process.env.SMTP_FROM}>`,
+        to: options.to,
+        subject: `Invoice ${options.invoiceId}`,
+        html: `
+          <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
+            <h1 style="color: #333;">Your Invoice</h1>
+            <p>Please find attached the invoice for our services.</p>
+            ${options.message ? `<p>${options.message}</p>` : ""}
+            <p>If you have any questions about this invoice, please don't hesitate to contact us.</p>
+            <p>Thank you for your business!</p>
+          </div>
+        `,
+      };
+
+      // Add attachment if provided
+      if (options.attachmentPath && fs.existsSync(options.attachmentPath)) {
+        mailOptions.attachments = [
+          {
+            filename: path.basename(options.attachmentPath),
+            path: options.attachmentPath,
+          },
+        ];
+      }
+
+      const info = await this.transporter.sendMail(mailOptions);
+      console.log("Invoice email sent:", info.messageId);
+    } catch (error) {
+      console.error("Failed to send invoice email:", error);
+      throw new Error("Failed to send invoice email");
     }
   }
 }

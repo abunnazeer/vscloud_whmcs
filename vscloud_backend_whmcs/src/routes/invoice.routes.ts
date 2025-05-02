@@ -17,7 +17,7 @@ const invoiceController = new InvoiceController();
 router.post(
   "/",
   authenticate,
-  validateRequest(createInvoiceSchema),
+  // validateRequest(createInvoiceSchema),
   invoiceController.createInvoice
 );
 
@@ -28,7 +28,7 @@ router.get("/:id", authenticate, invoiceController.getInvoice);
 router.patch(
   "/:id/status",
   authenticate,
-  validateRequest(updateInvoiceSchema),
+  // validateRequest(updateInvoiceSchema),
   invoiceController.updateInvoiceStatus
 );
 
@@ -38,7 +38,7 @@ router.get("/:id/download", authenticate, invoiceController.downloadInvoice);
 router.post(
   "/:id/send",
   authenticate,
-  validateRequest(sendInvoiceEmailSchema),
+  // validateRequest(sendInvoiceEmailSchema),
   invoiceController.sendInvoiceEmail
 );
 
